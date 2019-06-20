@@ -1,17 +1,23 @@
-import os, json
+import os
+import json
+from shutil import copyfile, rmtree
+import re
 
 filename = "chapter2.txt"
+
 
 def load_data_from_file(path=None):
     with open(path if path else filename, 'r') as f:
         data = f.read()
     return data
 
+
 class ShardHandler(object):
     """
     Take any text file and shard it into X number of files with
     Y number of replications.
     """
+
     def __init__(self):
         self.mapping = self.load_map()
 
@@ -64,7 +70,8 @@ class ShardHandler(object):
         """Split the data into as many pieces as needed."""
         splicenum, rem = divmod(len(data), count)
 
-        result = [data[splicenum * z:splicenum * (z + 1)] for z in range(count)]
+        result = [data[splicenum * z:splicenum *
+                       (z + 1)] for z in range(count)]
         # take care of any odd characters
         if rem > 0:
             result[-1] += data[-rem:]
@@ -84,7 +91,6 @@ class ShardHandler(object):
         """Add a new shard to the existing pool and rebalance the data."""
         self.mapping = self.load_map()
         data = self.load_data_from_shards()
-        # why 2? Because we have to compensate for zero indexing
         keys = [int(z) for z in list(self.mapping.keys())]
         keys.sort()
         new_shard_num = str(max(keys) + 2)
@@ -100,7 +106,19 @@ class ShardHandler(object):
         """Loads the data from all shards, removes the extra 'database' file,
         and writes the new number of shards to disk.
         """
-        pass
+        self.mapping = self.load_map()
+        data = self.load_data_from_shards()
+        keys = [int(z) for z in list(self.mapping.keys())]
+        keys.sort()
+        new_shard_num = str(max(keys))
+        rmtree("./data")
+        self.mapping = {}
+        try:
+            self.build_shards(int(new_shard_num), data)
+        except ZeroDivisionError:
+            print(new_shard_num)
+
+        self.write_map()
 
     def add_replication(self):
         """Add a level of replication so that each shard has a backup. Label
@@ -117,7 +135,26 @@ class ShardHandler(object):
         to detect how many levels there are and appropriately add the next
         level.
         """
-        pass
+        files = os.listdir("data")
+        highest_rep = self.current_replication()
+        highest_rep = int(highest_rep) + 1
+        for f1 in files:
+            if '-' not in f1:
+                file_name = f1[:-4]
+                copyfile(f"data/{f1}", f"data/{file_name}-{highest_rep}.txt")
+
+        self.write_map()
+
+    def current_replication(self):
+        files = os.listdir("data")
+        f = [file for file in files if '-' in file]
+        reps = ["0"]
+        for t in f:
+            reps += re.findall("\-(\d+)", t)
+        # int(reps)
+        # reps.sort()
+        # print(max(reps))
+        return max(reps)
 
     def remove_replication(self):
         """Remove the highest replication level.
@@ -140,13 +177,23 @@ class ShardHandler(object):
         2.txt (shard 2, primary)
         etc...
         """
-        pass
+        highest_rep_num = self.current_replication()
+        files = os.listdir("data")
+        for f in files:
+            if ('-' + highest_rep_num) in f:
+                os.remove(f"data/{f}")
 
     def sync_replication(self):
         """Verify that all replications are equal to their primaries and that
          any missing primaries are appropriately recreated from their
          replications."""
-        pass
+
+        for key in set(self.mapping.keys()):
+            primary = f"data/{key}.txt"
+
+            for x in range(int(self.current_replication())):
+                rep = f"data/{key}-{str(x+1)}.txt"
+                copyfile(rep, primary)
 
     def get_shard_data(self, shardnum=None):
         """Return information about a shard from the mapfile."""
@@ -164,10 +211,16 @@ class ShardHandler(object):
 
 s = ShardHandler()
 
-s.build_shards(5, load_data_from_file())
+# s.build_shards(5, load_data_from_file())
 
 print(s.mapping.keys())
 
-s.add_shard()
+# s.add_shard()
+# s.remove_shard()
+
+# s.add_replication()
+# s.remove_replication()
+
+s.sync_replication()
 
 print(s.mapping.keys())
